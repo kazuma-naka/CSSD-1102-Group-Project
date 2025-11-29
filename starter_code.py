@@ -5,6 +5,8 @@ from rdkit import Chem
 from rdkit.Chem import Draw
 import json
 from collections import Counter
+import csv
+from io import StringIO
 
 """
 ############################################################
@@ -204,7 +206,103 @@ def remove_non_drug(sorted_cids: list[int], save_result=False, mol_name="") -> l
     >>> remove_non_drug([57422081, 59102850, 58422532, 171528, 23560202, 78060557, 44144404, 158956564, 72499223, 22247451, 137349153, 57418915, 58750500, 139617572, 157350, 57634601, 59045931, 15593902, 13644079, 17769776, 85602483, 71327550, 17985087, 157621312, 961, 57470146, 163575618, 123332, 58828612, 6914119, 5460554, 20037327, 59984341, 85595863, 22146520, 21338204, 59367517, 19818716, 20266850, 21871715, 71333220, 129631210, 59049839, 58609138, 57937911, 161115002])
     [58422532, 171528, 137349153, 58750500, 157350, 57634601, 961, 123332, 6914119, 5460554, 59049839, 58609138, 57937911]
     """
-    pass
+    if not sorted_cids:
+        return []
+
+    # Lipinski-like conditions
+    MAX_MW = 500.0
+    MAX_XLOGP = 5.0
+    MAX_HBD = 5
+    MAX_HBA = 10
+
+    # This dict will store properties for each CID that passes Lipinski rules
+    # so that we can optionally write them to a CSV file.
+    druglike_props: dict[int, tuple[float, float, int, int]] = {}
+
+    # Split the CID list into chunks to avoid overly large single requests.
+    chunks = get_chunks(sorted_cids, chunk_size=100)
+
+    for chunk in chunks:
+        if not chunk:
+            continue
+
+        # Build a comma-separated list of CIDs for this chunk
+        cid_str = ",".join(str(cid) for cid in chunk)
+
+        # Prepare the property list to query from PubChem
+        properties = "MolecularWeight,XLogP,HBondDonorCount,HBondAcceptorCount"
+
+        # Example URL:
+        # https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/962,910/property/MolecularWeight,XLogP,HBondDonorCount,HBondAcceptorCount/csv
+        url = generate_url(
+            f"compound/cid/{cid_str}",
+            f"property/{properties}",
+            "csv",
+        )
+
+        # Query PubChem and get the CSV text
+        csv_text = make_query(url)
+
+        # Parse the CSV text using csv.DictReader for convenience
+        reader = csv.DictReader(StringIO(csv_text))
+
+        for row in reader:
+            # Skip rows that are missing any of the required columns
+            try:
+                cid_value = row.get("CID", "").strip()
+                mw_value = row.get("MolecularWeight", "").strip()
+                xlogp_value = row.get("XLogP", "").strip()
+                hbd_value = row.get("HBondDonorCount", "").strip()
+                hba_value = row.get("HBondAcceptorCount", "").strip()
+
+                # If any field is empty or missing, ignore this entry
+                if not (cid_value and mw_value and xlogp_value and hbd_value and hba_value):
+                    continue
+
+                cid = int(cid_value)
+                mw = float(mw_value)
+                xlogp = float(xlogp_value)
+                # Sometimes these may be represented as floats in the CSV, so cast via float -> int
+                hbd = int(float(hbd_value))
+                hba = int(float(hba_value))
+            except (ValueError, KeyError):
+                # If parsing fails for any reason, skip this row
+                continue
+
+            # Apply Lipinski's rule of five
+            if (
+                mw <= MAX_MW
+                and xlogp <= MAX_XLOGP
+                and hbd <= MAX_HBD
+                and hba <= MAX_HBA
+            ):
+                druglike_props[cid] = (mw, xlogp, hbd, hba)
+
+    # Preserve the original order from sorted_cids,
+    # but only keep CIDs that passed the Lipinski filter.
+    druglike_cids = [cid for cid in sorted_cids if cid in druglike_props]
+
+    # Optionally write results to a CSV file
+    if save_result:
+        if not mol_name:
+            # A name is required when saving to file, to determine the file name
+            raise ValueError(
+                "mol_name must be provided when save_result is True")
+
+        filename = f"{mol_name}.csv"
+        with open(filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            # Header row
+            writer.writerow(
+                ["CID", "MolecularWeight", "XLogP",
+                    "HBondDonorCount", "HBondAcceptorCount"]
+            )
+            # Write properties in the same order as druglike_cids
+            for cid in druglike_cids:
+                mw, xlogp, hbd, hba = druglike_props[cid]
+                writer.writerow([cid, mw, xlogp, hbd, hba])
+
+    return druglike_cids
 
 
 def cid_to_smiles(cid: int) -> str:
