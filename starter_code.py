@@ -214,7 +214,17 @@ def cid_to_smiles(cid: int) -> str:
     >>> cid_to_smiles(962)
     'O'
     """
-    pass
+
+    url = generate_url(
+
+        f"compound/cid/{cid}",
+        "property/CanonicalSMILES",
+        "txt",
+    )
+    smiles_text = make_query(url)
+    smiles = smiles_text.strip()
+
+    return smiles
 
 
 def sort_and_retrieve_property(cids: list[int], compound_property: str, properties_to_include: list[str], descending=True):
