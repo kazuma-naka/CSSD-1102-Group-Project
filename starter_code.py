@@ -335,7 +335,51 @@ def sort_and_retrieve_property(cids: list[int], compound_property: str, properti
 
     You are free to return the results in any format. Or you may choose not to return those, but to print it or save the results to file.
     """
-    pass
+
+    if not cids or not properties_to_include:
+        return []
+
+    properties_str = ",".join(properties_to_include)
+
+    all_rows: list[dict[str, str]] = []
+
+    chunks = get_chunks(cids, chunk_size=100)
+
+    for chunk in chunks:
+        if not chunk:
+            continue
+
+        cid_str = ",".join(str(cid) for cid in chunk)
+
+        url = generate_url(
+            f"compound/cid/{cid_str}",
+            f"property/{properties_str}",
+            "csv",
+        )
+
+        csv_text = make_query(url)
+
+        reader = csv.DictReader(StringIO(csv_text))
+
+        for row in reader:
+            cid_value = row.get("CID", "").strip()
+            sort_value = row.get(compound_property, "").strip()
+
+            if not cid_value or not sort_value:
+                continue
+
+            all_rows.append(row)
+
+    def _sort_key(row: dict[str, str]):
+        value_str = row.get(compound_property, "").strip()
+        try:
+            return float(value_str)
+        except ValueError:
+            return value_str
+
+    all_rows.sort(key=_sort_key, reverse=descending)
+
+    return all_rows
 
 
 if __name__ == "__main__":
