@@ -3,6 +3,7 @@ import doctest
 import requests
 from rdkit import Chem
 from rdkit.Chem import Draw
+import json
 
 """
 ############################################################
@@ -82,7 +83,11 @@ def generate_url(input: str, operation: str, output: str, options: str = "") -> 
     >>> generate_url("compound/cid/129825914,129742624,129783988", "sids", "json", "list_return=grouped")
     'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/129825914,129742624,129783988/sids/json?list_return=grouped'
     """
-    pass
+    base = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/"
+    url = f"{base}{input}/{operation}/{output}"
+    if options:
+        url = f"{url}?{options}"
+    return url
 
 
 def name_to_cid(name: str) -> int:
@@ -92,7 +97,10 @@ def name_to_cid(name: str) -> int:
     >>> name_to_cid("water")
     962
     """
-    pass
+    url = generate_url(f"compound/name/{name}", "cids", "txt")
+    text = make_query(url)
+    cid_str = text.strip()
+    return int(cid_str)
 
 
 def find_similar_structures(cid: int) -> list[int]:
@@ -102,7 +110,14 @@ def find_similar_structures(cid: int) -> list[int]:
     >>> find_similar_structures(962)
     [962, 961, 24602, 104752, 22247451, 10129877, 157350, 6914120, 123332, 105142, 137349153, 139859, 5460554, 10197601, 16048639, 6914119, 17985087, 21871715, 22146520, 44144404, 57470146, 129631210, 171528, 10214376, 20266850, 57422081, 72499223, 5460604, 12676391, 21338204, 23560202, 57418915, 57634601, 57937911, 58422532, 58609138, 58750500, 58828612, 59045931, 59049839, 59102850, 59367517, 59984341, 78060557, 85595863, 85602483, 139617572, 157621312, 158956564, 160528969, 161115002, 163575618, 139505, 12161503, 13644079, 15593902, 17769776, 19818716, 20037327, 71327550, 71333220, 72700706, 76071083]
     """
-    pass
+    url = generate_url(
+        f"compound/fastsimilarity_2d/cid/{cid}",
+        "cids",
+        "txt",
+    )
+    text = make_query(url)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return [int(line) for line in lines]
 
 
 def remove_query_cid(cids: list[int], query_cid: int) -> list[int]:
@@ -112,7 +127,21 @@ def remove_query_cid(cids: list[int], query_cid: int) -> list[int]:
     >>> remove_query_cid([962, 961, 24602, 104752, 22247451, 157350, 10129877, 6914120, 123332, 105142, 137349153, 139859, 5460554, 10197601, 16048639, 6914119, 17985087, 21871715, 22146520, 44144404, 57470146, 129631210, 171528, 10214376, 20266850, 57422081, 72499223, 5460604, 12676391, 21338204, 23560202, 57418915, 57634601, 57937911, 58422532, 58609138, 58750500, 58828612, 59045931, 59049839, 59102850, 59367517, 59984341, 78060557, 85595863, 85602483, 139617572, 157621312, 158956564, 160528969, 161115002, 163575618, 139505, 12161503, 13644079, 15593902, 17769776, 19818716, 20037327, 71327550, 71333220, 72700706, 76071083], 962)
     [961, 22247451, 157350, 123332, 137349153, 5460554, 6914119, 17985087, 21871715, 22146520, 44144404, 57470146, 129631210, 171528, 20266850, 57422081, 72499223, 21338204, 23560202, 57418915, 57634601, 57937911, 58422532, 58609138, 58750500, 58828612, 59045931, 59049839, 59102850, 59367517, 59984341, 78060557, 85595863, 85602483, 139617572, 157621312, 158956564, 161115002, 163575618, 13644079, 15593902, 17769776, 19818716, 20037327, 71327550, 71333220]
     """
-    pass
+    url = generate_url(
+        f"compound/fastidentity/cid/{query_cid}",
+        "cids",
+        "json",
+        "identity_type=same_connectivity",
+    )
+    text = make_query(url)
+    data = json.loads(text)
+
+    same_connectivity_cids = set(
+        data.get("IdentifierList", {}).get("CID", [])
+    )
+    filtered = [cid for cid in cids if cid not in same_connectivity_cids]
+
+    return filtered
 
 
 def sort_by_frequency(cids: list[int]) -> list[int]:
@@ -216,4 +245,4 @@ if __name__ == "__main__":
     # sort_and_retrieve_property(drug_candidate, "MolecularWeight", ["MolecularWeight", "XLogP"]) # Q1
 
     # run doctest
-    # doctest.testmod()
+    doctest.testmod()
