@@ -1,0 +1,10 @@
+numpy
+pillow
+matplotlib
+rdkit
+scikit-learn
+seaborn
+mordred
+ipymol
+pypdb
+requests
