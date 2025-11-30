@@ -409,3 +409,10 @@ C1=CC=NC(=C1)C(CNC2=NC=C(C(=C2F)CC(=O)NCC3=CN=C4C(=C3)C=CN4)Cl)(F)F
 Non-C and Non-H atoms:
 Cl, F, N, O
 ```
+
+## URL
+Provide the URL to determine the CIDs of compounds with an exact mass of 4112.1187318 g/mol in JSON format.
+
+```bash
+https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pccompound&term=4112.1187318[exactmass]&retmode=json
+```
