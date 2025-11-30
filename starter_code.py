@@ -65,6 +65,145 @@ Please add those under this section
 ############################################################
 """
 
+DRUG_NAMES = [
+    "Nicotine",
+    "Enzalutamide",
+    "Alpelisib",
+    "Crizotinib",
+    "Axitinib",
+    "Vemurafenib",
+    "Vandetanib",
+    "Dacomitinib",
+    "Avapritinib",
+    "Selumetinib",
+    "Pexidartinib",
+]
+
+
+def get_non_CH_atoms_from_smiles(smiles: str) -> list[str]:
+    """
+    Extract unique element symbols except C and H from a SMILES string.
+
+    Returns a sorted list of element symbols (e.g., ["N", "O", "Cl"]).
+    """
+    atoms = set()
+    i = 0
+
+    while i < len(smiles):
+        ch = smiles[i]
+
+        if ch.isalpha():
+            if i + 1 < len(smiles) and smiles[i + 1].islower():
+                symbol = smiles[i:i+2]
+                i += 2
+            else:
+                symbol = ch
+                i += 1
+
+            if symbol not in ("C", "H"):
+                atoms.add(symbol)
+        else:
+            i += 1
+
+    return sorted(atoms)
+
+
+def analyze_drug_for_clo5(mol_name: str, top_k: int = 10) -> None:
+    print("=" * 80)
+    print(f"Analyzing drug: {mol_name}")
+
+    mol_cid = name_to_cid(mol_name)
+    print(f"CID of {mol_name}: {mol_cid}")
+
+    similar_cids = find_similar_structures(mol_cid)
+    print(f"Number of similar structures: {len(similar_cids)}")
+
+    similar_cids = remove_query_cid(similar_cids, mol_cid)
+    print(
+        f"After removing same connectivity, {len(similar_cids)} compounds left")
+
+    similar_cids = sort_by_frequency(similar_cids)
+    print("Top 10 CIDs after frequency sorting:")
+    for cid in similar_cids[:10]:
+        print(f"\t{cid}")
+
+    drug_candidate = remove_non_drug(
+        similar_cids, save_result=True, mol_name=mol_name
+    )
+    print(
+        f"After removing non-drug-like structures, {len(drug_candidate)} candidates left."
+    )
+
+    if not drug_candidate:
+        print("No drug-like candidates found. Skipping property analysis.")
+        return
+
+    properties = ["MolecularWeight", "XLogP"]
+
+    rows = sort_and_retrieve_property(
+        cids=drug_candidate,
+        compound_property="MolecularWeight",
+        properties_to_include=properties,
+        descending=True,
+    )
+
+    if not rows:
+        print("No property rows retrieved. Skipping.")
+        return
+
+    top_rows = rows[:top_k]
+
+    for row in top_rows:
+        cid_str = row.get("CID", "").strip()
+        if cid_str:
+            try:
+                smiles = cid_to_smiles(int(cid_str))
+            except Exception:
+                smiles = ""
+        else:
+            smiles = ""
+        row["CanonicalSMILES"] = smiles
+
+    print("\nTop 10 SMILES (sorted by MolecularWeight):")
+    for row in top_rows:
+        smiles = row.get("CanonicalSMILES", "").strip()
+        xlogp = row.get("XLogP", "").strip()
+        mw = row.get("MolecularWeight", "").strip()
+        print(f"{smiles}: XlogP - {xlogp}  (MW={mw})")
+
+    min_xlogp = None
+    most_polar_smiles: list[str] = []
+
+    for row in top_rows:
+        smiles = row.get("CanonicalSMILES", "").strip()
+        xlogp_str = row.get("XLogP", "").strip()
+        if not smiles or not xlogp_str:
+            continue
+        try:
+            x = float(xlogp_str)
+        except ValueError:
+            continue
+
+        if min_xlogp is None or x < min_xlogp:
+            min_xlogp = x
+            most_polar_smiles = [smiles]
+        elif x == min_xlogp:
+            most_polar_smiles.append(smiles)
+
+    print("\nMost polar by XLogP (SMILES):")
+    for s in most_polar_smiles:
+        print(s)
+
+    if most_polar_smiles:
+        atoms = get_non_CH_atoms_from_smiles(most_polar_smiles[0])
+        print("\nNon-C and Non-H atoms:")
+        print(", ".join(atoms))
+
+    cids_to_draw = [int(row["CID"]) for row in top_rows]
+    smiles_to_draw = [row["CanonicalSMILES"].strip() for row in top_rows]
+    visualize_multiple_smiles(smiles_to_draw, cids_to_draw, mol_name)
+    print(f"Generated {mol_name}.png for the top {len(top_rows)} candidates.")
+
 
 """
 ############################################################
@@ -383,41 +522,8 @@ def sort_and_retrieve_property(cids: list[int], compound_property: str, properti
 
 
 if __name__ == "__main__":
-    mol_name = "water"
-
-    # Retrieve CID
-    mol_cid = name_to_cid(mol_name)
-    print(f"The CID of the compound {mol_name} is {mol_cid}")
-
-    # Identify compounds with similar chemical structures.
-    similar_cids = find_similar_structures(mol_cid)
-    print(f"There are {len(similar_cids)} similar structures")
-
-    # Filter out compounds with identical connectivity to remove duplicates.
-    similar_cids = remove_query_cid(similar_cids, mol_cid)
-    print(
-        f"After removing compounds with identical connectivity, {len(similar_cids)} compounds left")
-
-    # Sort the remaining compounds by frequency of occurrences.
-    similar_cids = sort_by_frequency(similar_cids)
-    compounds = '\n'.join([f'\t{cid}' for cid in similar_cids[:10]])
-    print(f"After sorting by frequency, the top 10 compounds are\n{compounds}")
-
-    # Exclude non-drug-like structures based on Lipinski’s rule of five and generate reports
-    drug_candidate = remove_non_drug(
-        similar_cids, save_result=True, mol_name=mol_name)
-    print(
-        f"After removing non-drug-like structures, {len(drug_candidate)} compounds left.")
-    compounds = '\n'.join([f'\t{cid}' for cid in drug_candidate[:10]])
-    print(f"The top 10 compounds are\n{compounds}")
-
-    # Visualize the top ten candidates
-    cids_to_draw = drug_candidate[:10]
-    smiles_to_draw = [cid_to_smiles(cid) for cid in cids_to_draw]
-    visualize_multiple_smiles(smiles_to_draw, cids_to_draw, mol_name)
-
-    # Run these functions to answer questions (you need to uncomment them to run them):
-    # sort_and_retrieve_property(drug_candidate, "MolecularWeight", ["MolecularWeight", "XLogP"]) # Q1
+    for mol_name in DRUG_NAMES:
+        analyze_drug_for_clo5(mol_name)
 
     # run doctest
-    doctest.testmod()
+    # doctest.testmod()
